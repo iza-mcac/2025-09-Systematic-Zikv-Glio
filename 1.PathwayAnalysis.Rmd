@@ -1,0 +1,136 @@
+---
+title: "Systematic_Review"
+author: "Iza"
+date: "2025-09-10"
+output: html_document
+---
+Load table
+```{r}
+CHEN2018etal<-read_csv("data/res_CHEN2022etal_dic.csv")
+u251_chen2023<-read_csv("data/res_u251_chen2023_dic.csv")
+zhuglioetal<-read_csv("data/res_zhuglio_GSC_vs_NSTC.csv")
+```
+
+Load gobp c5
+```{r}
+gobp <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP") %>%
+  transmute(pathway = gs_name, gene = gene_symbol)
+pathways <- split(gobp$gene, gobp$pathway)
+```
+
+CHen 2018
+```{r}
+ranks_chen2018<-CHEN2018etal$log2FoldChange
+names(ranks_chen2018)<-CHEN2018etal$gene_name
+
+res_chen2018 <- fgsea(pathways = pathways, stats = ranks_chen2018, maxSize = 500, nperm = 10000) %>%
+  as_tibble() 
+
+```
+
+u251_chen2023
+```{r}
+ranks_u251 <- u251_chen2023$log2FoldChange
+names(ranks_u251) <- u251_chen2023$gene_name
+
+# keep only finite stats, drop missing/empty gene names, and make names unique
+o <- order(abs(ranks_u251), decreasing = TRUE, na.last = NA)
+ranks_u251 <- ranks_u251[o]
+ranks_u251 <- ranks_u251[is.finite(ranks_u251)]
+ranks_u251 <- ranks_u251[!is.na(names(ranks_u251)) & names(ranks_u251) != ""]
+ranks_u251 <- ranks_u251[!duplicated(names(ranks_u251))]
+
+res_u251 <- fgsea(pathways = pathways, stats = ranks_u251, maxSize = 500, nperm = 10000) %>%
+  as_tibble()
+
+
+```
+
+zhu glio
+```{r}
+ranks_zhuglio <- zhuglioetal$log2FoldChange
+names(ranks_zhuglio) <- zhuglioetal$...1
+
+# keep only finite stats, valid names, and one entry per gene
+o <- order(abs(ranks_zhuglio), decreasing = TRUE, na.last = NA)
+ranks_zhuglio <- ranks_zhuglio[o]
+ranks_zhuglio <- ranks_zhuglio[is.finite(ranks_zhuglio)]
+ranks_zhuglio <- ranks_zhuglio[!is.na(names(ranks_zhuglio)) & names(ranks_zhuglio) != ""]
+ranks_zhuglio <- ranks_zhuglio[!duplicated(names(ranks_zhuglio))]
+
+res_zhuglio <- fgsea(pathways = pathways, stats = ranks_zhuglio, maxSize = 500, nperm = 10000) %>%
+  as_tibble()
+
+```
+
+FIlter and bind
+```{r}
+res_chen2018_f <- res_chen2018 %>%
+  dplyr::filter(NES > 1, pval < 0.05) %>%
+  dplyr::mutate(dataset = "CHEN2018")
+
+res_u251_f <- res_u251 %>%
+  dplyr::filter(NES > 1, pval < 0.05) %>%
+  dplyr::mutate(dataset = "Chen_U251_2022")
+
+res_zhuglio_f <- res_zhuglio %>%
+  dplyr::filter(NES > 1, pval < 0.05) %>%
+  dplyr::mutate(dataset = "Zhu2023")
+
+res_filtered_combined <- dplyr::bind_rows(res_chen2018_f, res_u251_f, res_zhuglio_f)
+
+inter_1<-intersect(res_chen2018_f$pathway, res_u251_f$pathway)
+
+inter_2<-intersect(inter_1, res_zhuglio_f$pathway)
+
+```
+
+Do the graph
+```{r}
+pathways_fig3 <- c(
+  "GOBP_REGULATION_OF_IMMUNE_SYSTEM_PROCESS",
+  "GOBP_POSITIVE_REGULATION_OF_IMMUNE_SYSTEM_PROCESS",
+  "GOBP_REGULATION_OF_RESPONSE_TO_EXTERNAL_STIMULUS",
+  "GOBP_ANTIMICROBIAL_HUMORAL_IMMUNE_RESPONSE_MEDIATED_BY_ANTIMICROBIAL_PEPTIDE",
+  "GOBP_POSITIVE_REGULATION_OF_IMMUNE_RESPONSE",
+  "GOBP_BIOLOGICAL_PROCESS_INVOLVED_IN_INTERSPECIES_INTERACTION_BETWEEN_ORGANISMS",
+  "GOBP_REGULATION_OF_DEFENSE_RESPONSE",
+  "GOBP_POSITIVE_REGULATION_OF_DEFENSE_RESPONSE",
+  "GOBP_POSITIVE_REGULATION_OF_RESPONSE_TO_EXTERNAL_STIMULUS",
+  "GOBP_INFLAMMATORY_RESPONSE",
+  "GOBP_RESPONSE_TO_PEPTIDE",
+  "GOBP_RESPONSE_TO_BACTERIUM",
+  "GOBP_DEFENSE_RESPONSE_TO_OTHER_ORGANISM",
+  "GOBP_DEFENSE_RESPONSE_TO_SYMBIONT",
+  "GOBP_CELLULAR_RESPONSE_TO_VIRUS",
+  "GOBP_REGULATION_OF_ADAPTIVE_IMMUNE_RESPONSE",
+  "GOBP_CYTOKINE_MEDIATED_SIGNALING_PATHWAY",
+  "GOBP_ANTIVIRAL_INNATE_IMMUNE_RESPONSE",
+  "GOBP_INTERFERON_MEDIATED_SIGNALING_PATHWAY",
+  "GOBP_RESPONSE_TO_VIRUS",
+  "GOBP_REGULATION_OF_VIRAL_LIFE_CYCLE",
+  "GOBP_DEFENSE_RESPONSE_TO_VIRUS",
+  "GOBP_REGULATION_OF_VIRAL_GENOME_REPLICATION"
+)
+
+res_filtered_combined_sel<-res_filtered_combined %>% filter(pathway %in% pathways_fig3)
+
+```
+
+plot graph
+```{r}
+res_filtered_combined_sel %>%
+  ggplot(
+  aes(x = dataset, y = factor(pathway, levels = rev(pathways_fig3)))
+) +
+  geom_point(aes(fill = NES, size = -log10(padj)), shape = 21, alpha = 0.92, stroke = 0.2) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.major.y = element_line(linetype = "dotted", linewidth = 0.3),
+    legend.position = "right"
+  )
+
+```
+
+
